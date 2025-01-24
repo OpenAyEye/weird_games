@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Maze RPG Game</title>
+  <style>
+    body { margin: 0; font-family: sans-serif; background-color: black; }
+    canvas { display: block; margin: 0 auto; }
+    #battleStatus {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: white;
+      font-family: Arial, sans-serif;
+      font-size: 18px;
+      width: 400px;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas" width="600" height="600"></canvas>
+  <div id="battleStatus"></div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Game variables
+    const TILE_SIZE = 20;
+    const MAP_WIDTH = canvas.width / TILE_SIZE;
+    const MAP_HEIGHT = canvas.height / TILE_SIZE;
+    const player = { x: 1, y: 1, health: 100, attack: 10, healAmount: 20 };
+    const enemies = [];
+    const numEnemies = 5;
+    let maze = [];
+    let isInBattle = false;
+    let battleOption = 0; // 0: Heal, 1: Attack, 2: Run
+    let exit = { x: MAP_WIDTH - 2, y: MAP_HEIGHT - 2 };
+    let battleMessage = "";
+
+    // Maze Generation: Recursive Backtracking Algorithm
+    function generateMaze() {
+      maze = Array.from({ length: MAP_HEIGHT }, () => Array(MAP_WIDTH).fill(1)); // 1 = Wall, 0 = Path
+
+      const stack = [];
+      const startX = 1, startY = 1;
+      maze[startY][startX] = 0;
+      stack.push({ x: startX, y: startY });
+
+      const directions = [
+        { dx: 0, dy: -2 }, // up
+        { dx: 2, dy: 0 },  // right
+        { dx: 0, dy: 2 },  // down
+        { dx: -2, dy: 0 }, // left
+      ];
+
+      function carve() {
+        if (stack.length === 0) return;
+
+        const { x, y } = stack[stack.length - 1];
+        const neighbors = [];
+
+        for (let { dx, dy } of directions) {
+          const nx = x + dx, ny = y + dy;
+          if (nx >= 0 && nx < MAP_WIDTH && ny >= 0 && ny < MAP_HEIGHT && maze[ny][nx] === 1) {
+            neighbors.push({ dx, dy, nx, ny });
+          }
+        }
+
+        if (neighbors.length > 0) {
+          const { dx, dy, nx, ny } = neighbors[Math.floor(Math.random() * neighbors.length)];
+          maze[ny][nx] = 0;
+          maze[y + dy / 2][x + dx / 2] = 0; // Carve the wall between cells
+          stack.push({ x: nx, y: ny });
+        } else {
+          stack.pop();
+        }
+
+        carve();
+      }
+
+      carve();
+      maze[exit.y][exit.x] = 0; // Ensure exit is part of the path
+
+      // Spawn player on a valid path, but far from exit
+      let playerSpawned = false;
+      while (!playerSpawned) {
+        const px = Math.floor(Math.random() * MAP_WIDTH);
+        const py = Math.floor(Math.random() * MAP_HEIGHT);
+        const distanceToExit = Math.abs(px - exit.x) + Math.abs(py - exit.y);
+        if (maze[py][px] === 0 && distanceToExit > 20) { // Ensuring player starts far from exit
+          player.x = px;
+          player.y = py;
+          playerSpawned = true;
+        }
+      }
+    }
+
+    // Enemy placement in maze with unique colors and names
+    function createEnemies() {
+      enemies.length = 0; // Clear existing enemies
+      const enemyTypes = [
+        { color: 'green', name: 'Triangle', shape: 'triangle' },
+        { color: 'orange', name: 'Square', shape: 'square' },
+        { color: 'red', name: 'Circle', shape: 'circle' },
+        { color: 'purple', name: 'Hexagon', shape: 'hexagon' },
+        { color: 'yellow', name: 'Diamond', shape: 'diamond' },
+      ];
+      for (let i = 0; i < numEnemies; i++) {
+        let ex, ey;
+        do {
+          ex = Math.floor(Math.random() * MAP_WIDTH);
+          ey = Math.floor(Math.random() * MAP_HEIGHT);
+        } while (maze[ey][ex] === 1 || (ex === player.x && ey === player.y)); // Avoid placing on walls or player spawn
+        const enemy = enemyTypes[i % enemyTypes.length];
+        enemies.push({ x: ex, y: ey, health: 50, attack: 8, color: enemy.color, name: enemy.name, shape: enemy.shape });
+      }
+    }
+
+    // Game Drawing Logic
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw the maze
+      for (let y = 0; y < MAP_HEIGHT; y++) {
+        for (let x = 0; x < MAP_WIDTH; x++) {
+          if (maze[y][x] === 1) {
+            ctx.fillStyle = '#A9A9A9'; // Dark Gray Walls
+            ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+          } else {
+            ctx.fillStyle = '#D3D3D3'; // Light Gray Path
+            ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+          }
+        }
+      }
+
+      // Draw Player
+      ctx.fillStyle = 'blue';
+      ctx.fillRect(player.x * TILE_SIZE, player.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+
+      // Draw Exit
+      ctx.fillStyle = 'green';
+      ctx.fillRect(exit.x * TILE_SIZE, exit.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+
+      // Draw Enemies
+      for (let enemy of enemies) {
+        ctx.fillStyle = enemy.color;
+        if (enemy.shape === 'triangle') {
+          ctx.beginPath();
+          ctx.moveTo(enemy.x * TILE_SIZE + TILE_SIZE / 2, enemy.y * TILE_SIZE);
+          ctx.lineTo(enemy.x * TILE_SIZE, enemy.y * TILE_SIZE + TILE_SIZE);
+          ctx.lineTo(enemy.x * TILE_SIZE + TILE_SIZE, enemy.y * TILE_SIZE + TILE_SIZE);
+          ctx.closePath();
+          ctx.fill();
+        } else if (enemy.shape === 'square') {
+          ctx.fillRect(enemy.x * TILE_SIZE, enemy.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        } // You can add more shapes for other types
+      }
+
+      // Draw Health Bar
+      ctx.fillStyle = 'green';
+      ctx.fillRect(10, 10, player.health, 10); // Player health bar
+
+      // Display battle status
+      document.getElementById('battleStatus').innerText = battleMessage;
+
+      // Draw battle menu if in battle
+      if (isInBattle) {
+        drawBattleMenu();
+      }
+    }
+
+    // Handle battle logic
+    function handleBattleOption() {
+      let enemy = enemies.find(e => e.x === player.x && e.y === player.y);
+      if (battleOption === 0) {
+        // Heal
+        player.health = Math.min(player.health + player.healAmount, 100);
+        battleMessage = `You healed yourself for ${player.healAmount} HP.`;
+      } else if (battleOption === 1) {
+        // Attack
+        if (enemy) {
+          enemy.health -= player.attack;
+          if (enemy.health <= 0) {
+            enemies.splice(enemies.indexOf(enemy), 1); // Remove the enemy
+            battleMessage = `You hit ${enemy.name} for ${player.attack} HP and defeated them!`;
+          } else {
+            battleMessage = `You hit ${enemy.name} for ${player.attack} HP.`;
+          }
+        }
+      } else if (battleOption === 2) {
+        // Run
+        isInBattle = false;
+        battleMessage = `You cowardly ran away!`;
+      }
+
+      // Enemy counterattack
+      if (enemy && enemy.health > 0) {
+        player.health -= enemy.attack;
+        if (player.health <= 0) {
+          battleMessage = "You were defeated!";
+          resetGame();
+        }
+      }
+
+      // Close battle menu after battle ends
+      isInBattle = false;
+
+      // Redraw after battle action
+      draw();
+    }
+
+    // Draw battle menu interface
+    function drawBattleMenu() {
+      ctx.fillStyle = 'black';
+      ctx.fillRect(200, 250, 200, 150);
+      ctx.fillStyle = 'white';
+      ctx.font = '20px Arial';
+      ctx.fillText("Battle Menu", 230, 280);
+      ctx.fillText(battleOption === 0 ? "> Heal" : "Heal", 220, 320);
+      ctx.fillText(battleOption === 1 ? "> Attack" : "Attack", 220, 350);
+      ctx.fillText(battleOption === 2 ? "> Run" : "Run", 220, 380);
+    }
+
+    // Handle key press for movement and action
+    window.addEventListener('keydown', function(event) {
+      if (isInBattle) {
+        if (event.key === 'ArrowUp') {
+          battleOption = (battleOption + 2) % 3; // Up to previous
+        } else if (event.key === 'ArrowDown') {
+          battleOption = (battleOption + 1) % 3; // Down to next
+        } else if (event.key === 'Enter') {
+          handleBattleOption();
+        }
+      } else {
+        if (event.key === 'ArrowUp' && player.y > 0 && maze[player.y - 1][player.x] === 0) player.y--;
+        if (event.key === 'ArrowDown' && player.y < MAP_HEIGHT - 1 && maze[player.y + 1][player.x] === 0) player.y++;
+        if (event.key === 'ArrowLeft' && player.x > 0 && maze[player.y][player.x - 1] === 0) player.x--;
+        if (event.key === 'ArrowRight' && player.x < MAP_WIDTH - 1 && maze[player.y][player.x + 1] === 0) player.x++;
+
+        // Check for battle encounter
+        if (enemies.some(e => e.x === player.x && e.y === player.y)) {
+          isInBattle = true;
+          battleMessage = "A battle begins!";
+        }
+
+        // Check for exit reach
+        if (player.x === exit.x && player.y === exit.y) {
+          levelUp();
+        }
+      }
+      draw();
+    });
+
+    // Level up: reset maze and player health
+    function levelUp() {
+      generateMaze();
+      createEnemies();
+      player.health = 100;
+      battleMessage = "Level Up! Press any key to continue.";
+      draw();
+    }
+
+    // Reset game after death
+    function resetGame() {
+      player.x = 1;
+      player.y = 1;
+      player.health = 100;
+      isInBattle = false;
+      enemies.length = 0;
+      createEnemies();
+      battleMessage = "Game Over. Press any key to start again.";
+      draw();
+    }
+
+    // Initialize game
+    generateMaze();
+    createEnemies();
+    draw();
+  </script>
+</body>
+</html>
